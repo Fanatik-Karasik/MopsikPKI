@@ -53,3 +53,22 @@ def set_file_permissions_warning(file_path):
         f"Настройка прав доступа 0o600 для {file_path} не поддерживается на Windows. "
         "Убедитесь, что файл хранится в безопасном месте."
     )
+
+def load_private_key(key_path: Path, passphrase: bytes = None):
+    """Загрузить ключ с паролем или без"""
+    data = key_path.read_bytes()
+    return serialization.load_pem_private_key(
+        data,
+        password=passphrase,
+        backend=default_backend()
+    )
+
+def save_private_key(private_key, key_path: Path, passphrase: bytes = None):
+    """Сохранить ключ (с паролем или без)"""
+    encryption = serialization.BestAvailableEncryption(passphrase) if passphrase else serialization.NoEncryption()
+    pem_data = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=encryption
+    )
+    save_pem_data(pem_data, key_path, "закрытый ключ")

@@ -1,11 +1,12 @@
 import datetime
 import secrets
 import logging
+from pathlib import Path
 from cryptography import x509
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.hazmat.backends import default_backend
+import ipaddress
 
 logger = logging.getLogger(__name__)
 
@@ -114,3 +115,56 @@ def generate_self_signed_cert(private_key, subject_name, validity_days, key_type
 
 def cert_to_pem(certificate):
     return certificate.public_bytes(serialization.Encoding.PEM)
+
+def load_pem_certificate(cert_path: Path):
+    """Загрузить сертификат из PEM"""
+    return x509.load_pem_x509_certificate(cert_path.read_bytes())
+
+def save_cert_pem(certificate, path: Path):
+    """Сохранить сертификат в PEM"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    logger.info(f"Сертификат сохранён: {path}")
+
+def parse_san_list(san_strings):
+    """dns:example.com, ip:1.2.3.4, email:user@example.com"""
+    sans = []
+    for item in san_strings:
+        if ":" not in item:
+            continue
+        typ, value = item.split(":", 1)
+        typ = typ.lower().strip()
+        if typ == "dns":
+            sans.append(x509.DNSName(value))
+        elif typ == "ip":
+            sans.append(x509.IPAddress(ipaddress.ip_address(value)))
+        elif typ == "email":
+            sans.append(x509.RFC822Name(value))
+        elif typ == "uri":
+            sans.append(x509.UniformResourceIdentifier(value))
+    return sans
+
+def get_template_extensions(template: str):
+    """Возвращает KeyUsage + ExtendedKeyUsage для шаблона"""
+    if template == "server":
+        return (
+            x509.KeyUsage(digital_signature=True, key_encipherment=True, key_cert_sign=False,
+                          crl_sign=False, content_commitment=False, data_encipherment=False,
+                          key_agreement=False, encipher_only=False, decipher_only=False),
+            [ExtendedKeyUsageOID.SERVER_AUTH]
+        )
+    elif template == "client":
+        return (
+            x509.KeyUsage(digital_signature=True, key_encipherment=False, key_agreement=True,
+                          key_cert_sign=False, crl_sign=False, content_commitment=False,
+                          data_encipherment=False, encipher_only=False, decipher_only=False),
+            [ExtendedKeyUsageOID.CLIENT_AUTH]
+        )
+    elif template == "code_signing":
+        return (
+            x509.KeyUsage(digital_signature=True, key_encipherment=False, key_cert_sign=False,
+                          crl_sign=False, content_commitment=False, data_encipherment=False,
+                          key_agreement=False, encipher_only=False, decipher_only=False),
+            [ExtendedKeyUsageOID.CODE_SIGNING]
+        )
+    raise ValueError(f"Неизвестный шаблон: {template}")

@@ -12,7 +12,12 @@ class CertificateAuthority:
         self.private_dir = self.out_dir / "private"
         self.certs_dir = self.out_dir / "certs"
         setup_logger(log_file)
-        logger.info(f"Инициализация CA с выходной директорией: {self.out_dir}")
+        logger.info(f"CA инициализирован, out_dir={self.out_dir}")
+
+    def _create_directory_structure(self):
+        self.private_dir.mkdir(parents=True, exist_ok=True)
+        self.certs_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Структура директорий создана: {self.out_dir}")
 
     def init_root_ca(self, subject_str, key_type, key_size, passphrase, validity_days):
         if not subject_str or not subject_str.strip():
@@ -114,3 +119,115 @@ NotAfter: {certificate.not_valid_after_utc.isoformat()}
         except IOError as e:
             logger.error(f"Ошибка при сохранении policy.txt: {e}")
             raise
+
+    def issue_intermediate_ca(self, root_cert_path, root_key_path, root_passphrase,
+                              subject_str, key_type, key_size, passphrase,
+                              validity_days, pathlen=0):
+        self._create_directory_structure()
+
+        root_cert = certificates.load_pem_certificate(root_cert_path)
+        root_key = crypto_utils.load_private_key(root_key_path, root_passphrase)
+
+        # Генерируем ключ промежуточного УЦ
+        if key_type == "rsa":
+            private_key = crypto_utils.generate_rsa_key(key_size)
+        else:
+            private_key = crypto_utils.generate_ecc_key()
+
+        # Сохраняем зашифрованный ключ
+        key_path = self.private_dir / "intermediate.key.pem"
+        crypto_utils.save_private_key(private_key, key_path, passphrase)
+
+        subject = certificates.parse_subject(subject_str)
+
+        # Строим сертификат
+        now = certificates.datetime.datetime.now(certificates.datetime.timezone.utc)
+        builder = certificates.x509.CertificateBuilder() \
+            .subject_name(subject) \
+            .issuer_name(root_cert.subject) \
+            .public_key(private_key.public_key()) \
+            .serial_number(certificates.generate_serial_number()) \
+            .not_valid_before(now) \
+            .not_valid_after(now + certificates.datetime.timedelta(days=validity_days)) \
+            .add_extension(
+                certificates.x509.BasicConstraints(ca=True, path_length=pathlen),
+                critical=True
+            ) \
+            .add_extension(
+                certificates.x509.KeyUsage(
+                    digital_signature=False, key_cert_sign=True, crl_sign=True,
+                    content_commitment=False, data_encipherment=False,
+                    key_encipherment=False, key_agreement=False,
+                    encipher_only=False, decipher_only=False
+                ),
+                critical=True
+            ) \
+            .add_extension(
+                certificates.x509.SubjectKeyIdentifier.from_public_key(private_key.public_key()),
+                critical=False
+            ) \
+            .add_extension(
+                certificates.x509.AuthorityKeyIdentifier.from_issuer_public_key(root_cert.public_key()),
+                critical=False
+            )
+
+        cert = builder.sign(private_key=root_key, algorithm=certificates.hashes.SHA256())
+
+        cert_path = self.certs_dir / "intermediate.cert.pem"
+        certificates.save_cert_pem(cert, cert_path)          # новая функция ниже
+
+        logger.info(f"✅ Промежуточный УЦ создан")
+        logger.info(f"   Сертификат: {cert_path}")
+        logger.info(f"   Ключ:       {key_path}")
+
+    # === Sprint 2: issue-cert ===
+    def issue_end_entity_cert(self, ca_cert_path, ca_key_path, ca_passphrase,
+                              template, subject_str, san_list, validity_days):
+        self._create_directory_structure()
+
+        ca_cert = certificates.load_pem_certificate(ca_cert_path)
+        ca_key = crypto_utils.load_private_key(ca_key_path, ca_passphrase)
+
+        subject = certificates.parse_subject(subject_str)
+        public_key = None
+
+        # Генерируем ключ конечного сертификата (без пароля!)
+        private_key = crypto_utils.generate_rsa_key(2048)
+        key_path = self.certs_dir / f"{subject.get_attributes_for_oid(certificates.NameOID.COMMON_NAME)[0].value.replace(' ', '_')}.key.pem"
+        crypto_utils.save_private_key(private_key, key_path, passphrase=None)
+
+        # SAN
+        sans = certificates.parse_san_list(san_list)
+
+        # Шаблон
+        key_usage, eku = certificates.get_template_extensions(template)
+
+        now = certificates.datetime.datetime.now(certificates.datetime.timezone.utc)
+        builder = certificates.x509.CertificateBuilder() \
+            .subject_name(subject) \
+            .issuer_name(ca_cert.subject) \
+            .public_key(private_key.public_key()) \
+            .serial_number(certificates.generate_serial_number()) \
+            .not_valid_before(now) \
+            .not_valid_after(now + certificates.datetime.timedelta(days=validity_days)) \
+            .add_extension(certificates.x509.BasicConstraints(ca=False, path_length=None), critical=True) \
+            .add_extension(key_usage, critical=True)
+
+        if eku:
+            builder = builder.add_extension(
+                certificates.x509.ExtendedKeyUsage(eku), critical=False
+            )
+        if sans:
+            builder = builder.add_extension(
+                certificates.x509.SubjectAlternativeName(sans), critical=False
+            )
+
+        cert = builder.sign(private_key=ca_key, algorithm=certificates.hashes.SHA256())
+
+        cn = subject.get_attributes_for_oid(certificates.NameOID.COMMON_NAME)[0].value
+        cert_path = self.certs_dir / f"{cn.replace(' ', '_').replace('/', '_')}.cert.pem"
+        certificates.save_cert_pem(cert, cert_path)
+
+        logger.info(f"✅ Сертификат выдан ({template})")
+        logger.info(f"   Сертификат: {cert_path}")
+        logger.info(f"   Ключ:       {key_path}")
