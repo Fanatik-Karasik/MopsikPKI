@@ -1,74 +1,64 @@
 from pathlib import Path
-import logging
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.hazmat.backends import default_backend
+import os
+import secrets
 
-logger = logging.getLogger(__name__)
+def load_passphrase(path: Path) -> bytes:
+    if not path.is_file():
+        raise FileNotFoundError(f"Файл с паролем не найден: {path}")
+    content = path.read_bytes().strip()
+    if not content:
+        raise ValueError("Файл с паролем пустой")
+    return content
 
-def load_passphrase(passphrase_file):
-    if not passphrase_file.is_file():
-        raise FileNotFoundError(f"Файл с парольной фразой не найден: {passphrase_file}")
-    try:
-        passphrase = passphrase_file.read_bytes()
-        return passphrase.strip()
-    except IOError as e:
-        raise IOError(f"Ошибка чтения файла с парольной фразой {passphrase_file}: {e}")
 
-def generate_rsa_key(key_size=4096):
-    logger.info(f"Генерация RSA ключа размером {key_size} бит")
-    return rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=key_size,
-        backend=default_backend()
+def generate_serial_number() -> int:
+    return secrets.randbelow(2**159)  # достаточно большой и уникальный
+
+
+def generate_key_pair(key_type: str, key_size: int = None):
+    if key_type == "rsa":
+        if key_size is None:
+            key_size = 2048 
+        if key_size not in [2048, 3072, 4096]:
+            raise ValueError("Для RSA key-size должен быть 2048, 3072 или 4096")
+        return rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=key_size,
+            backend=default_backend()
+        )
+    elif key_type == "ecc":
+        if key_size is None or key_size == 384:
+            return ec.generate_private_key(ec.SECP384R1(), backend=default_backend())
+        else:
+            raise ValueError("Для ECC поддерживается только key-size=384 (P-384)")
+    else:
+        raise ValueError(f"Неизвестный тип ключа: {key_type}")
+
+
+def save_private_key(key, path: Path, passphrase: bytes = None):
+    encryption = (
+        serialization.BestAvailableEncryption(passphrase)
+        if passphrase else
+        serialization.NoEncryption()
     )
 
-def generate_ecc_key():
-    logger.info("Генерация ECC ключа на кривой secp384r1 (P-384)")
-    return ec.generate_private_key(
-        curve=ec.SECP384R1(),
-        backend=default_backend()
-    )
-
-def encrypt_private_key(private_key, passphrase, key_type):
-    logger.info("Шифрование закрытого ключа с использованием парольной фразы")
-    encryption_algorithm = serialization.BestAvailableEncryption(passphrase)
-    pem_data = private_key.private_bytes(
+    pem = key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=encryption_algorithm
-    )
-    return pem_data
-
-def save_pem_data(data, file_path, description="файл"):
-    try:
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_bytes(data)
-        logger.info(f"Сохранен {description}: {file_path}")
-    except IOError as e:
-        raise IOError(f"Ошибка при сохранении {description} {file_path}: {e}")
-
-def set_file_permissions_warning(file_path):
-    logger.warning(
-        f"Настройка прав доступа 0o600 для {file_path} не поддерживается на Windows. "
-        "Убедитесь, что файл хранится в безопасном месте."
+        encryption_algorithm=encryption
     )
 
-def load_private_key(key_path: Path, passphrase: bytes = None):
-    """Загрузить ключ с паролем или без"""
-    data = key_path.read_bytes()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(pem)
+
+
+def load_private_key(path: Path, passphrase: bytes) -> object:
+    data = path.read_bytes()
     return serialization.load_pem_private_key(
         data,
         password=passphrase,
         backend=default_backend()
     )
-
-def save_private_key(private_key, key_path: Path, passphrase: bytes = None):
-    """Сохранить ключ (с паролем или без)"""
-    encryption = serialization.BestAvailableEncryption(passphrase) if passphrase else serialization.NoEncryption()
-    pem_data = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=encryption
-    )
-    save_pem_data(pem_data, key_path, "закрытый ключ")
