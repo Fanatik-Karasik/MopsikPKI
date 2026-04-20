@@ -1,5 +1,5 @@
-## Sprint 1 — Создание корневого удостоверяющего центра (Root CA)
-# Установка
+# Sprint 1 — Создание корневого удостоверяющего центра (Root CA)
+## Установка
 ```powershell
 git clone https://github.com/Fanatik-Karasik/Compilator_pulyator.git
 cd Compilator_pulyator
@@ -9,7 +9,7 @@ python -m venv venv
 pip install -r requirements.txt   
 ```
 
-# Тесты
+## Тесты
 ```powershell
 pip install pytest
 
@@ -29,7 +29,7 @@ pytest tests/test_pki.py -v
   --validity-days 3650
 ```
 
-Проверка после выполнения:
+##Проверка после выполнения:
 ```PowerShell
 # Должны появиться файлы
 dir .\pki\certs\ca.cert.pem
@@ -39,8 +39,8 @@ dir .\pki\private\ca.key.pem
 type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
 ```
 
-## Sprint 2 — Промежуточный УЦ и конечные сертификаты
-# 1. Создание промежуточного удостоверяющего центра (Intermediate CA)
+# Sprint 2 — Промежуточный УЦ и конечные сертификаты
+## 1. Создание промежуточного удостоверяющего центра (Intermediate CA)
 ```PowerShell
 # 1. Создать пароль для Intermediate CA (один раз)
 "IntermediatePass2026!" | Out-File -FilePath .\secrets\intermediate.pass -Encoding ascii -NoNewline
@@ -59,7 +59,7 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
   --pathlen      0
 ```
 
-# 2. Выпуск конечных сертификатов по шаблонам
+## 2. Выпуск конечных сертификатов по шаблонам
 Серверный сертификат (TLS/HTTPS)
 ```PowerShell
 .\micropki.bat ca issue-cert `
@@ -100,14 +100,14 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
 ```
 
 
-## Sprint 3 — База данных и HTTP-репозиторий
-# 1. Инициализация базы данных
+# Sprint 3 — База данных и HTTP-репозиторий
+## 1. Инициализация базы данных
 ```powershell
 # Инициализация SQLite базы данных
 .\micropki.bat db init
 ```
 
-# 2. Выпуск сертификатов (с автоматическим сохранением в БД)
+## 2. Выпуск сертификатов (с автоматическим сохранением в БД)
 ```powershell
 # Серверный сертификат
 .\micropki.bat ca issue-cert `
@@ -121,7 +121,7 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
   --validity-days 90
 ```
 
-# 3. Работа с базой данных
+## 3. Работа с базой данных
 ```powershell
 # Посмотреть все сертификаты
 .\micropki.bat ca list-certs
@@ -133,33 +133,33 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
 .\micropki.bat ca show-cert 46C490873BAB706F6D1A276C3E8A77C3D1224F60
 ```
 
-# 4. Запуск HTTP-репозитория сертификатов
+## 4. Запуск HTTP-репозитория сертификатов
 ```powershell
 # Запуск сервера
 .\micropki.bat repo serve
 ```
 
-## Sprint 4 — Отзыв сертификатов и CRL
-# 1. Отзыв сертификата
+# Sprint 4 — Отзыв сертификатов и CRL
+## 1. Отзыв сертификата
 ```PowerShell
 .\micropki.bat ca revoke <serial_hex> --reason keyCompromise
 # Пример
 .\micropki.bat ca revoke 46C490873BAB706F6D1A276C3E8A77C3D1224F60 --reason keyCompromise
 ```
 
-# 2. Генерация CRL
+## 2. Генерация CRL
 ```Powershell
 .\micropki.bat ca gen-crl --ca intermediate
 # Для root CA
 .\micropki.bat ca gen-crl --ca root
 ```
 
-# 3. Просмотр отозванных сертификатов
+## 3. Просмотр отозванных сертификатов
 ```Powershell
 .\micropki.bat ca list-certs --status revoked
 ```
 
-# 4. Запуск HTTP-репозитория (с поддержкой CRL)
+## 4. Запуск HTTP-репозитория (с поддержкой CRL)
 ```Powershell
 .\micropki.bat repo serve
 ```
