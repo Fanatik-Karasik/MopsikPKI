@@ -163,3 +163,20 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
 ```Powershell
 .\micropki.bat repo serve
 ```
+
+# Sprint 5 — OCSP Responder
+
+## 1. Выпуск сертификата для OCSP Responder
+```powershell
+.\micropki.bat ca issue-ocsp-cert `
+  --ca-cert .\pki\certs\intermediate.cert.pem `
+  --ca-key .\pki\private\intermediate.key.pem `
+  --ca-pass-file .\secrets\intermediate.pass `
+  --subject "CN=OCSP Responder,O=MopsikPKI" `
+  --san "dns:ocsp.mopsik.local" `
+  --validity-days 365
+```
+## 2. Запуск OCSP Responder
+```powershell
+.\micropki.bat ocsp serve --port 8081
+```

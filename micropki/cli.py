@@ -76,13 +76,28 @@ def main():
     crl_p.add_argument("--ca", choices=["root", "intermediate"], default="intermediate")
     crl_p.add_argument("--next-update", type=int, default=7)
 
+    ocsp_cert = ca_sub.add_parser("issue-ocsp-cert", help="Выпустить сертификат OCSP Responder")
+    ocsp_cert.add_argument("--ca-cert", required=True)
+    ocsp_cert.add_argument("--ca-key", required=True)
+    ocsp_cert.add_argument("--ca-pass-file", required=True)
+    ocsp_cert.add_argument("--subject", required=True)
+    ocsp_cert.add_argument("--san", action="append", default=[])
+    ocsp_cert.add_argument("--validity-days", type=int, default=365)
+
+    ocsp_parser = subparsers.add_parser("ocsp", help="OCSP Responder")
+    ocsp_sub = ocsp_parser.add_subparsers(dest="ocsp_command", required=True)
+    serve_ocsp = ocsp_sub.add_parser("serve", help="Запустить OCSP Responder")
+    serve_ocsp.add_argument("--host", default="127.0.0.1")
+    serve_ocsp.add_argument("--port", type=int, default=8081)
+    serve_ocsp.add_argument("--db-path", default="pki/micropki.db")
+
     args = parser.parse_args()
 
     try:
         if args.command == "db":
             if args.db_command == "init":
                 PKIDatabase(args.db_path)
-                print(f" База данных успешно инициализирована: {args.db_path}")
+                print(f"База данных успешно инициализирована: {args.db_path}")
 
         elif args.command == "ca":
             ca = CertificateAuthority(out_dir=getattr(args, 'out_dir', "./pki"))
@@ -126,6 +141,20 @@ def main():
                     db=db
                 )
 
+            elif args.ca_subcommand == "issue-ocsp-cert":
+                ca_pass = load_passphrase(Path(args.ca_pass_file))
+                ca.issue_end_entity_cert(
+                    ca_cert_path=args.ca_cert,
+                    ca_key_path=args.ca_key,
+                    ca_passphrase=ca_pass,
+                    template="server",
+                    subject_str=args.subject,
+                    san_list=args.san,
+                    validity_days=args.validity_days,
+                    db=db
+                )
+                print("OCSP Responder certificate issued successfully")
+
             elif args.ca_subcommand == "list-certs":
                 rows = db.list_certs(args.status)
                 for row in rows:
@@ -136,7 +165,7 @@ def main():
                 if cert:
                     print(cert["cert_pem"])
                 else:
-                    print(f"Сертификат с serial {args.serial} не найден")
+                    print("Сертификат не найден")
 
             elif args.ca_subcommand == "revoke":
                 from .crl import CRLManager
@@ -152,10 +181,16 @@ def main():
 
         elif args.command == "repo":
             if args.repo_command == "serve":
+                from .repository import run_server
                 run_server(host=args.host, port=args.port)
 
+        elif args.command == "ocsp":
+            if args.ocsp_command == "serve":
+                from .ocsp_responder import run_ocsp_server
+                run_ocsp_server(host=args.host, port=args.port, db_path=args.db_path)
+
     except Exception as e:
-        print(f" Ошибка: {e}", file=sys.stderr)
+        print(f"Ошибка: {e}", file=sys.stderr)
         sys.exit(1)
 
 
