@@ -58,7 +58,13 @@ def get_ca(level):
 
 @app.route('/crl')
 def get_crl():
-    return Response("CRL generation will be implemented in Sprint 4", status=501)
+    ca_level = request.args.get('ca', 'intermediate')
+    crl_path = cert_dir.parent / "crl" / f"{ca_level}.crl.pem"
+    if crl_path.exists():
+        return Response(crl_path.read_text(encoding="utf-8"), mimetype="application/pkix-crl")
+    return Response("CRL not found", status=404)
+
+
 
 
 def run_server(host="127.0.0.1", port=8080, db_path="pki/micropki.db", cert_dir="pki/certs"):

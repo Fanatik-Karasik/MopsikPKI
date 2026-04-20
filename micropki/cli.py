@@ -66,6 +66,16 @@ def main():
     serve_p.add_argument("--host", default="127.0.0.1")
     serve_p.add_argument("--port", type=int, default=8080)
 
+    revoke_p = ca_sub.add_parser("revoke", help="Отозвать сертификат")
+    revoke_p.add_argument("serial", help="Serial number в hex")
+    revoke_p.add_argument("--reason", default="unspecified", 
+                         choices=["unspecified", "keyCompromise", "caCompromise", "affiliationChanged", 
+                                  "superseded", "cessationOfOperation", "certificateHold"])
+
+    crl_p = ca_sub.add_parser("gen-crl", help="Сгенерировать CRL")
+    crl_p.add_argument("--ca", choices=["root", "intermediate"], default="intermediate")
+    crl_p.add_argument("--next-update", type=int, default=7)
+
     args = parser.parse_args()
 
     try:
@@ -127,6 +137,16 @@ def main():
                     print(cert["cert_pem"])
                 else:
                     print(f"Сертификат с serial {args.serial} не найден")
+
+            elif args.ca_subcommand == "revoke":
+                from .crl import CRLManager
+                crl_manager = CRLManager()
+                crl_manager.revoke(args.serial, args.reason)
+
+            elif args.ca_subcommand == "gen-crl":
+                from .crl import CRLManager
+                crl_manager = CRLManager()
+                crl_manager.generate_crl(ca_level=args.ca, next_update_days=args.next_update)
 
             db.close()
 

@@ -32,7 +32,6 @@ class PKIDatabase:
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_serial ON certificates(serial_hex)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_status ON certificates(status)")
         self.conn.commit()
-        logger.info(f"База данных инициализирована: {self.db_path}")
 
     def insert_certificate(self, cert, cert_pem: str, issuer_dn: str):
         serial_hex = format(cert.serial_number, 'X')
@@ -42,12 +41,11 @@ class PKIDatabase:
         created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         self.conn.execute("""
-            INSERT INTO certificates 
+            INSERT OR REPLACE INTO certificates 
             (serial_hex, subject, issuer, not_before, not_after, cert_pem, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, 'valid', ?)
         """, (serial_hex, subject, issuer_dn, not_before, not_after, cert_pem, created_at))
         self.conn.commit()
-        logger.info(f"Сертификат сохранён в БД. Serial: {serial_hex}")
 
     def get_cert_by_serial(self, serial_hex: str):
         row = self.conn.execute(
@@ -64,6 +62,17 @@ class PKIDatabase:
             params.append(status)
         query += " ORDER BY created_at DESC"
         return self.conn.execute(query, params).fetchall()
+
+    def revoke_cert(self, serial_hex: str, reason: str):
+        revocation_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self.conn.execute("""
+            UPDATE certificates 
+            SET status = 'revoked', 
+                revocation_reason = ?, 
+                revocation_date = ?
+            WHERE serial_hex = ?
+        """, (reason, revocation_date, serial_hex.upper()))
+        self.conn.commit()
 
     def close(self):
         self.conn.close()

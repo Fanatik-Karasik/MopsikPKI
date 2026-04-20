@@ -138,3 +138,28 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
 # Запуск сервера
 .\micropki.bat repo serve
 ```
+
+## Sprint 4 — Отзыв сертификатов и CRL
+# 1. Отзыв сертификата
+```PowerShell
+.\micropki.bat ca revoke <serial_hex> --reason keyCompromise
+# Пример
+.\micropki.bat ca revoke 46C490873BAB706F6D1A276C3E8A77C3D1224F60 --reason keyCompromise
+```
+
+# 2. Генерация CRL
+```Powershell
+.\micropki.bat ca gen-crl --ca intermediate
+# Для root CA
+.\micropki.bat ca gen-crl --ca root
+```
+
+# 3. Просмотр отозванных сертификатов
+```Powershell
+.\micropki.bat ca list-certs --status revoked
+```
+
+# 4. Запуск HTTP-репозитория (с поддержкой CRL)
+```Powershell
+.\micropki.bat repo serve
+```
