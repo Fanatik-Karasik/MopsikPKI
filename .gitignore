@@ -9,3 +9,5 @@ secrets/
 pki/private/
 logs/
 *.log
+pki/micropki.db
+*.db

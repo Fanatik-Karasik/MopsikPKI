@@ -1,8 +1,12 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from venv import logger
+
 from cryptography import x509
 from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives import hashes, serialization  
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend  
 
 from .crypto_utils import (
     generate_key_pair,
@@ -17,6 +21,7 @@ from .certificates import (
     get_template_extensions,
     save_cert_pem,
 )
+from .database import PKIDatabase
 from .logger import setup_logger
 
 class CertificateAuthority:
@@ -24,10 +29,12 @@ class CertificateAuthority:
         self.out_dir = Path(out_dir)
         self.certs_dir = self.out_dir / "certs"
         self.private_dir = self.out_dir / "private"
+        
         self.certs_dir.mkdir(parents=True, exist_ok=True)
         self.private_dir.mkdir(parents=True, exist_ok=True)
 
         setup_logger(log_file)
+        logger.info(f"CA инициализирован, out_dir={self.out_dir}")
 
     def init_root_ca(
         self,
@@ -167,19 +174,27 @@ class CertificateAuthority:
         subject_str: str,
         san_list: list[str],
         validity_days: int,
+        db: PKIDatabase = None
     ):
+        from cryptography.hazmat.primitives import serialization 
+
         ca_cert = x509.load_pem_x509_certificate(Path(ca_cert_path).read_bytes())
         ca_key = load_private_key(Path(ca_key_path), ca_passphrase)
 
         subject = parse_subject(subject_str)
         sans = parse_san(san_list) if san_list else []
 
-        # Генерируем ключ конечного субъекта — без пароля!
-        end_key = generate_key_pair("rsa", 2048)  # пока только RSA 2048
+        end_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
 
-        key_filename = subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-        key_filename = "".join(c if c.isalnum() or c in "._-" else "_" for c in key_filename)
+        cn = subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        key_filename = "".join(c if c.isalnum() or c in "._-" else "_" for c in cn)
+        
         key_path = self.certs_dir / f"{key_filename}.key.pem"
+        cert_path = self.certs_dir / f"{key_filename}.cert.pem"
 
         save_private_key(end_key, key_path, passphrase=None)
         print(f"ВНИМАНИЕ: закрытый ключ конечного субъекта сохранён БЕЗ шифрования: {key_path}")
@@ -195,31 +210,24 @@ class CertificateAuthority:
             .serial_number(generate_serial_number())
             .not_valid_before(now)
             .not_valid_after(now + timedelta(days=validity_days))
-            .add_extension(
-                x509.BasicConstraints(ca=False, path_length=None),
-                critical=True,
-            )
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
             .add_extension(ku, critical=True)
         )
 
         if eku:
-            builder = builder.add_extension(
-                x509.ExtendedKeyUsage(eku), critical=False
-            )
-
+            builder = builder.add_extension(x509.ExtendedKeyUsage(eku), critical=False)
         if sans:
-            builder = builder.add_extension(
-                x509.SubjectAlternativeName(sans), critical=False
-            )
+            builder = builder.add_extension(x509.SubjectAlternativeName(sans), critical=False)
 
-        cert = builder.sign(
-            private_key=ca_key,
-            algorithm=hashes.SHA384(),
-        )
+        cert = builder.sign(private_key=ca_key, algorithm=hashes.SHA384())
 
-        cert_path = self.certs_dir / f"{key_filename}.cert.pem"
+        cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
+
         save_cert_pem(cert, cert_path)
 
-        print(f"Сертификат ({template}) создан:")
-        print(f"  Сертификат: {cert_path}")
-        print(f"  Ключ      : {key_path}")
+        if db is not None:
+            db.insert_certificate(cert, cert_pem, ca_cert.subject.rfc4514_string())
+
+        print(f"   Сертификат ({template}) успешно создан:")
+        print(f"   Сертификат: {cert_path}")
+        print(f"   Ключ      : {key_path}")

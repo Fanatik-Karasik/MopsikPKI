@@ -40,7 +40,7 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
 ```
 
 ## Sprint 2 — Промежуточный УЦ и конечные сертификаты
-# 2.1. Создание промежуточного удостоверяющего центра (Intermediate CA)
+# 1. Создание промежуточного удостоверяющего центра (Intermediate CA)
 ```PowerShell
 # 1. Создать пароль для Intermediate CA (один раз)
 "IntermediatePass2026!" | Out-File -FilePath .\secrets\intermediate.pass -Encoding ascii -NoNewline
@@ -59,7 +59,7 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
   --pathlen      0
 ```
 
-# 2.2. Выпуск конечных сертификатов по шаблонам
+# 2. Выпуск конечных сертификатов по шаблонам
 Серверный сертификат (TLS/HTTPS)
 ```PowerShell
 .\micropki.bat ca issue-cert `
@@ -97,4 +97,44 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
   --subject        "CN=Mopsik Code Signing 2026,O=MopsikPKI" `
   --out-dir        .\pki\certs `
   --validity-days  365
+```
+
+
+## Sprint 3 — База данных и HTTP-репозиторий
+# 1. Инициализация базы данных
+```powershell
+# Инициализация SQLite базы данных
+.\micropki.bat db init
+```
+
+# 2. Выпуск сертификатов (с автоматическим сохранением в БД)
+```powershell
+# Серверный сертификат
+.\micropki.bat ca issue-cert `
+  --ca-cert .\pki\certs\intermediate.cert.pem `
+  --ca-key .\pki\private\intermediate.key.pem `
+  --ca-pass-file .\secrets\intermediate.pass `
+  --template server `
+  --subject "CN=test3.mopsik.local" `
+  --san "dns:test3.mopsik.local" `
+  --san "ip:192.168.10.55" `
+  --validity-days 90
+```
+
+# 3. Работа с базой данных
+```powershell
+# Посмотреть все сертификаты
+.\micropki.bat ca list-certs
+
+# Посмотреть только действующие
+.\micropki.bat ca list-certs --status valid
+
+# Показать конкретный сертификат по serial (hex)
+.\micropki.bat ca show-cert 46C490873BAB706F6D1A276C3E8A77C3D1224F60
+```
+
+# 4. Запуск HTTP-репозитория сертификатов
+```powershell
+# Запуск сервера
+.\micropki.bat repo serve
 ```
