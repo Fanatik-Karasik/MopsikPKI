@@ -1,43 +1,80 @@
-from flask import Flask, Response, request, jsonify
+from flask import Flask, Response, request
 from pathlib import Path
+from cryptography import x509
 from .database import PKIDatabase
+from .ca import CertificateAuthority
 from .logger import setup_logger
 
 logger = setup_logger()
 
 app = Flask(__name__)
-db = None
 cert_dir = None
 
 
 def init_repository(db_path="pki/micropki.db", cert_directory="pki/certs"):
-    global db, cert_dir
-    db = PKIDatabase(db_path)
+    global cert_dir
     cert_dir = Path(cert_directory)
 
 
 @app.route('/')
 def index():
     return """
-    <h1>MopsikPKI Repository</h1>
-    <p><strong>Sprint 3</strong> — HTTP Repository работает </p>
-    <hr>
-    <h3>Доступные эндпоинты:</h3>
-    <ul>
-        <li><a href="/ca/root">/ca/root</a> — Корневой сертификат</li>
-        <li><a href="/ca/intermediate">/ca/intermediate</a> — Промежуточный сертификат</li>
-        <li><a href="/certificate/46C490873BAB706F6D1A276C3E8A77C3D1224F60">/certificate/&lt;serial&gt;</a> — Пример сертификата</li>
-        <li><a href="/crl">/crl</a> — CRL (пока заглушка)</li>
-    </ul>
-    <p>Используйте <code>curl</code> или браузер для скачивания сертификатов.</p>
+    <h1>MopsikPKI Repository — Sprint 6</h1>
+    <p>Client + CSR support</p>
     """
+
+
+@app.route('/request-cert', methods=['POST'])
+def request_cert():
+    if 'csr' not in request.files:
+        return Response("No CSR provided", status=400)
+
+    csr_file = request.files['csr']
+    template = request.form.get('template', 'server')
+
+    try:
+        csr = x509.load_pem_x509_csr(csr_file.read())
+    except Exception:
+        return Response("Invalid CSR", status=400)
+
+    try:
+        ca = CertificateAuthority()
+        ca_pass = open("secrets/intermediate.pass", "rb").read().strip()
+
+        subject_str = csr.subject.rfc4514_string()
+        san_list = []
+
+        try:
+            san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            for name in san_ext.value:
+                if isinstance(name, x509.DNSName):
+                    san_list.append(f"dns:{name.value}")
+        except:
+            pass
+
+        ca.issue_end_entity_cert(
+            ca_cert_path="pki/certs/intermediate.cert.pem",
+            ca_key_path="pki/private/intermediate.key.pem",
+            ca_passphrase=ca_pass,
+            template=template,
+            subject_str=subject_str,
+            san_list=san_list,
+            validity_days=365,
+            db=PKIDatabase()
+        )
+        return Response("Certificate issued successfully", status=201)
+
+    except Exception as e:
+        logger.error(f"Certificate issuance failed: {e}")
+        return Response(f"Failed to issue certificate: {str(e)}", status=500)
 
 
 @app.route('/certificate/<serial>')
 def get_certificate(serial):
+    db = PKIDatabase()
     cert_record = db.get_cert_by_serial(serial)
+    db.close()
     if cert_record:
-        logger.info(f"Запрошен сертификат {serial} от {request.remote_addr}")
         return Response(cert_record["cert_pem"], mimetype="application/x-pem-file")
     return Response("Certificate not found", status=404)
 
@@ -56,19 +93,7 @@ def get_ca(level):
     return Response("CA certificate not found", status=404)
 
 
-@app.route('/crl')
-def get_crl():
-    ca_level = request.args.get('ca', 'intermediate')
-    crl_path = cert_dir.parent / "crl" / f"{ca_level}.crl.pem"
-    if crl_path.exists():
-        return Response(crl_path.read_text(encoding="utf-8"), mimetype="application/pkix-crl")
-    return Response("CRL not found", status=404)
-
-
-
-
-def run_server(host="127.0.0.1", port=8080, db_path="pki/micropki.db", cert_dir="pki/certs"):
-    init_repository(db_path, cert_dir)
-    print(f" Repository HTTP server started at http://{host}:{port}")
-    print("Открывай в браузере: http://127.0.0.1:8080")
+def run_server(host="127.0.0.1", port=8080):
+    init_repository()
+    print(f"Repository started at http://{host}:{port}")
     app.run(host=host, port=port, debug=False)

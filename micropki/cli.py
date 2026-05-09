@@ -2,6 +2,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from micropki.client import PKIClient
+
 from .ca import CertificateAuthority
 from .crypto_utils import load_passphrase
 from .database import PKIDatabase
@@ -90,6 +92,28 @@ def main():
     serve_ocsp.add_argument("--host", default="127.0.0.1")
     serve_ocsp.add_argument("--port", type=int, default=8081)
     serve_ocsp.add_argument("--db-path", default="pki/micropki.db")
+
+    client_parser = subparsers.add_parser("client", help="Client operations")
+    client_sub = client_parser.add_subparsers(dest="client_command", required=True)
+
+    gen_csr_p = client_sub.add_parser("gen-csr", help="Generate CSR")
+    gen_csr_p.add_argument("--subject", required=True)
+    gen_csr_p.add_argument("--key-type", choices=["rsa"], default="rsa")
+    gen_csr_p.add_argument("--key-size", type=int, default=2048)
+    gen_csr_p.add_argument("--san", action="append", default=[])
+    gen_csr_p.add_argument("--out-key", default="key.pem")
+    gen_csr_p.add_argument("--out-csr", default="request.csr.pem")
+
+    request_p = client_sub.add_parser("request-cert", help="Request certificate from CA")
+    request_p.add_argument("--csr", required=True)
+    request_p.add_argument("--template", required=True, choices=["server", "client", "code_signing"])
+    request_p.add_argument("--ca-url", default="http://127.0.0.1:8080")
+    request_p.add_argument("--out-cert", default="cert.pem")
+
+    validate_p = client_sub.add_parser("validate", help="Validate certificate chain")
+    validate_p.add_argument("--cert", required=True)
+    validate_p.add_argument("--untrusted", action="append", default=[])
+    validate_p.add_argument("--trusted", default="pki/certs/ca.cert.pem")
 
     args = parser.parse_args()
 
@@ -188,6 +212,27 @@ def main():
             if args.ocsp_command == "serve":
                 from .ocsp_responder import run_ocsp_server
                 run_ocsp_server(host=args.host, port=args.port, db_path=args.db_path)
+
+        elif args.command == "client":
+            client = PKIClient()
+
+            if args.client_command == "gen-csr":
+                client.gen_csr(
+                    subject_str=args.subject,
+                    key_type=args.key_type,
+                    key_size=args.key_size,
+                    san_list=args.san,
+                    out_key=args.out_key,
+                    out_csr=args.out_csr
+                )
+
+            elif args.client_command == "request-cert":
+                client.request_cert(
+                    csr_path=args.csr,
+                    template=args.template,
+                    ca_url=args.ca_url,
+                    out_cert=args.out_cert
+                )
 
     except Exception as e:
         print(f"Ошибка: {e}", file=sys.stderr)

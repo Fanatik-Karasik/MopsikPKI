@@ -180,3 +180,26 @@ type .\pki\private\ca.key.pem | findstr "ENCRYPTED"
 ```powershell
 .\micropki.bat ocsp serve --port 8081
 ```
+
+# Sprint 6 — Client operations (CSR + Certificate Request)
+
+```Powershell
+# Запуск сервера-репозитория (в одном окне)
+.\micropki.bat repo serve
+```
+
+## 1. Генерация CSR
+```powershell
+.\micropki.bat client gen-csr --subject "CN=myapp.mopsik.local" --san "dns:myapp.mopsik.local"
+```
+
+## 2. Запрос сертификата у CA
+```PowerShell
+.\micropki.bat client request-cert --csr request.csr.pem --template server
+```
+
+
+
+
+
+
